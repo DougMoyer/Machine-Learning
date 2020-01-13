@@ -1,0 +1,154 @@
+---
+title: "Predicting Quality of an Exercise"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+#Predicting Quality of an Exercise
+###by Doug Moyer
+
+##The Problem
+
+Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E).
+
+A machine learning model is required to Identify the correct execution of the exercise and the detection of execution mistakes.
+
+
+To start, the training and validation data are loaded.
+
+The validation data will be the dataset used as a prediction dataset so will not be used for the evaluation of the machine learning method selected.
+```{r warning=FALSE, message=FALSE}
+library(caret)
+library(ggplot2)
+library(EnvStats)
+library(e1071)
+data = data.frame(read.csv("C:/laptop-backup/raheem/coursera/DataScience/Machine Learning/Week4/pml-training.csv"))
+validate = data.frame(read.csv("C:/laptop-backup/raheem/coursera/DataScience/Machine Learning/Week4/pml-testing.csv"))
+```
+
+The data is arranged by classe (A, B, C, D, E) where A is the correct motions for the exercise and the other classes are mistakes in form that are common when doing the exercise.
+
+The data is further divided into a time series dataset by the 6 participants in the data.
+
+Ideally, the data should be arranged as follows:
+Class  | User| Time dataset
+A|1|timeset 1
+A|2|timeset 2
+A|3|timeset 3
+A|4|timeset 4
+A|5|timeset 5
+A|6|timeset 6
+B|1|timeset 7
+B|2|timeset 8
+B|3|timeset 9
+B|4|timeset 10
+B|5|timeset 11
+B|6|timeset 12
+C|1|timeset 13
+.||
+.||
+.||
+
+The data would need to be cross validated by selecting from all the timesets. This would allow the machine learning to become the most effective at prediciting the class. This is too advanced for the intent of this project so I defaulted to using the random selection of samples and trust that the timestamp and user will be a good predictors for ordering the data.
+
+More details can be found in this article: 
+[Time Series Nested Cross-Validation Courtney Cochrane May 18, 2018, https://towardsdatascience.com/time-series-nested-cross-validation-76adba623eb9]
+Next the data needs to be cleaned and outliers processed to ensure the most accurate results are obtained.
+
+In this case, the outliers were not removed because the data records
+movement and accelerations that don't follow any statistical pattern.
+
+Examination of the dataset shows many columns that have NAs. There are several other colums where the majority of the data is blank. The blank values will be changed to NA and all the columns containing NA will be removed.
+There are no columns with only a few NA samples so none of the important colums will be removed.
+
+```{r }
+data[data==""]<-NA
+cleanData<-data[ , colSums(is.na(data)) == 0]
+```
+
+The train and test partitions are created from the training dataset. As noted earlier, the data will be randomly sampled ignoring the fact that this is time series data and k-fold validation should be used.
+
+```{r }
+set.seed(723)
+inTrain = createDataPartition(y=cleanData$classe, p=.7, list=FALSE)
+train = cleanData[inTrain,]
+test = cleanData[-inTrain,]
+set.seed(98584)
+```
+
+Several models are tested to determine the best method for predicting this set of data.
+
+The dataset had to be reduced in size to get a reasonable completion time for each of the model training.
+
+```{r }
+sDat<-createDataPartition(y=cleanData$classe, p=.1, list=FALSE)
+smallTrain<-cleanData[sDat,]
+```
+
+Linear Discriminant Analysis
+```{r }
+modelLDA<-train(classe~.,data=smallTrain,method="lda",preProcess="pca",thresh=0.9)
+modelLDA$results
+```
+
+Naive Bayes
+```{r warning=FALSE, message=FALSE}
+modelNB<-train(classe~.,data=smallTrain,method="nb",preProcess="pca",thresh=0.9)
+modelNB$results
+```
+
+Random Forest
+```{r warning=FALSE, message=FALSE}
+modelRF<-train(classe~.,data=smallTrain,method="rf",preProcess="pca",thresh=0.9)
+modelRF$results
+```
+
+Support Vector Machine 
+```{r }
+modelSVM <- svm(classe ~ .,data=smallTrain)
+modelSVM$results
+predSVM<-predict(modelSVM,smallTrain)
+confusionMatrix(predSVM,smallTrain$classe)$overall
+```
+
+The model with the best accuracy is SVM and will be used for the final prediction model.
+
+Looking at the out of sample accuracy comparison for all the models:
+
+```{r warning=FALSE, message=FALSE}
+predLDA<-predict(modelLDA,test)
+confusionMatrix(predLDA,test$classe)$overall
+
+predNB<-predict(modelNB,test)
+confusionMatrix(predNB,test$classe)$overall
+
+predRF<-predict(modelRF,test)
+confusionMatrix(predRF,test$classe)$overall
+
+predSVM<-predict(modelSVM,test)
+confusionMatrix(predSVM,test$classe)$overall
+```
+
+These results show the SVM model performs best with this data. The expected out of sample accuracy is shown below.
+```{r }
+confusionMatrix(predSVM,test$classe)$overall
+```
+
+The validate data needs to be cleaned with the same process used for the training and testing data. Also need to make the factor levels match what the model has and set up some dummy data in problem_id column to prevent NA values being passed to the SVM prediction model.
+```{r }
+validate[validate==""]<-NA
+cleanValid<-validate[ , colSums(is.na(validate)) == 0]
+cleanValid$cvtd_timestamp=factor(cleanValid$cvtd_timestamp,levels(cleanData$cvtd_timestamp))
+cleanValid$problem_id=factor(c("D","D","D","D","D","D","D","D","D","D","D","D","D","D","D","D","D","D","D","D","D"),levels(cleanData$classe))
+```
+
+Predicting with the validate set using the SVM prediction model gives the following results:
+
+```{r }
+predValid<-predict(modelSVM, cleanValid)
+predValid
+```
+
+
